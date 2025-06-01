@@ -1,2 +1,2 @@
-# cobacoba---mvp
+# cobacoba-mvp
 Hi, we are cobacoba team!
