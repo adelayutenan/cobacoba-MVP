@@ -15,39 +15,57 @@ from pydub import AudioSegment
 from dotenv import load_dotenv
 import os
 import html
+import time
 
-# Load .env file
-load_dotenv()
+# --- Configuration and Initialization ---
+load_dotenv() # Load environment variables
 
-# ffmpeg path
-AudioSegment.converter = r"ffmpeg-7.1.1-essentials_build\ffmpeg-7.1.1-essentials_build\bin\ffmpeg.exe"
+# Set FFmpeg path (ensure this path is correct for your deployment)
+# This assumes ffmpeg is in a specific relative path. For production, consider adding to PATH or use absolute path.
+AudioSegment.converter = os.path.join(os.getcwd(), "ffmpeg-7.1.1-essentials_build", "ffmpeg-7.1.1-essentials_build", "bin", "ffmpeg.exe")
+if not os.path.exists(AudioSegment.converter):
+    st.error(f"FFmpeg converter not found at: {AudioSegment.converter}. Please check the path and ensure FFmpeg is installed.")
+    st.stop() # Stop the app if ffmpeg is not found
 
-api_key = os.getenv("AZURE_OPEN_AI_API_KEY")
-endpoint = os.getenv("AZURE_OPEN_AI_ENDPOINT")
-api_version = os.getenv("AZURE_OPEN_AI_API_VERSION")
+# Azure OpenAI Configuration
+AZURE_OPEN_AI_API_KEY = os.getenv("AZURE_OPEN_AI_API_KEY")
+AZURE_OPEN_AI_ENDPOINT = os.getenv("AZURE_OPEN_AI_ENDPOINT")
+AZURE_OPEN_AI_API_VERSION = os.getenv("AZURE_OPEN_AI_API_VERSION")
 
-# Open AI
-from openai import AzureOpenAI
-client = AzureOpenAI(
-    api_version=api_version,
-    azure_endpoint=endpoint,
-    api_key=api_key
+# Azure Speech Service Configuration
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
+AZURE_SPEECH_VOICE = os.getenv("AZURE_SPEECH_VOICE", 'id-ID-ArdiNeural') # Default voice for Indonesian
+
+# Initialize Azure OpenAI Client
+openai_client = openai.AzureOpenAI(
+    api_version=AZURE_OPEN_AI_API_VERSION,
+    azure_endpoint=AZURE_OPEN_AI_ENDPOINT,
+    api_key=AZURE_OPEN_AI_API_KEY
 )
 
 # Load YOLO model
-model = YOLO("best.pt")
+try:
+    model = YOLO("best.pt")
+except Exception as e:
+    st.error(f"Error loading YOLO model: {e}. Ensure 'best.pt' is in the root directory.")
+    st.stop()
 
-# Azure Speech Config
-speech_api_key = os.getenv("AZURE_SPEECH_KEY")
-speech_region = os.getenv("AZURE_SPEECH_REGION")
-voice_name = os.getenv("AZURE_SPEECH_VOICE")
-
-api_key = '7puy3olT86G8gwRYRCBwZnujbb3xm534rjJVSksdqdPeYksqmi7CJQQJ99BEACqBBLyXJ3w3AAAYACOGyRuq'
-region = 'southeastasia'
-speech_config = speechsdk.SpeechConfig(subscription=speech_api_key, region=speech_region)
-speech_config.speech_synthesis_voice_name = 'id-ID-ArdiNeural'
+# Initialize Azure Speech Config
+speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+speech_config.speech_synthesis_voice_name = AZURE_SPEECH_VOICE
 speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config)
 
+# Set Streamlit page configuration
+st.set_page_config(
+    page_title="InSignia: Jembatan Komunikasi Inklusif",
+    page_icon="👋",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- Helper Functions ---
+# Mapping class index to letters A-Y (without J, Z)
 # Mapping class index to letters A-Y (without J, Z)
 def get_class_mapping():
     import string
@@ -82,7 +100,7 @@ class SignLanguageDetector(VideoTransformerBase):
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
         img = cv2.flip(img, 1)  # mirror
-        results = model.predict(img, imgsz=1080, conf=0.5, verbose=False)[0]
+        results = model.predict(img, imgsz=640, conf=st.session_state.get("detection_threshold", 0.6), verbose=False)[0]
 
         for box in results.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -93,318 +111,318 @@ class SignLanguageDetector(VideoTransformerBase):
                 self.detected_text += label
                 self.last_label = label
 
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            # Warna ungu (BGR: 255, 0, 255), dan ketebalan garis 4
+            cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 255), 4)
+
+            # Ukuran font diperbesar (1.5) dan ketebalan teks ditingkatkan (3)
+            cv2.putText(img, label, (x1, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 255), 3)
 
         if len(results.boxes) == 0:
             self.last_label = ""
 
         return img
 
-# 1. Import streamlit and set page config IMMEDIATELY
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-import cv2, os, glob
-from ultralytics import YOLO
-import azure.cognitiveservices.speech as speechsdk
-from PIL import Image
-import tempfile
-from audiorecorder import audiorecorder
-from io import BytesIO
-import openai
-from pydub import AudioSegment
-from dotenv import load_dotenv
-import os
-import base64
-
-# Load environment variables
-load_dotenv()
-
-# Set page config with modern theme
-st.set_page_config(
-    page_title="InSignia - Sign Language Translator",
-    page_icon="👐",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
 # --- Modern CSS Styling ---
 def local_css(file_name):
     with open(file_name) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-local_css("style.css")  # We'll create this file
+local_css("style.css") # Load our custom stylesheet
 
-# Initialize session state
+# Initialize session state for navigation and dynamic content
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "🏠 Beranda"
 if 'sidebar_expanded' not in st.session_state:
-    st.session_state.sidebar_expanded = False
+    st.session_state.sidebar_expanded = True
+if 'detected_sign_text' not in st.session_state:
+    st.session_state.detected_sign_text = ""
+if 'detected_text' not in st.session_state:
+    st.session_state.detected_text = ""
+if 'chatbot_messages' not in st.session_state:
+    st.session_state.chatbot_messages = [{"role": "assistant", "content": "Halo! Saya InSignia Bot, siap membantu Anda belajar dan berkomunikasi tentang Bahasa Isyarat SIBI. Ada yang bisa saya bantu?"}]
+if 'show_fps_camera' not in st.session_state:
+    st.session_state.show_fps_camera = True
+if 'detection_threshold' not in st.session_state:
+    st.session_state.detection_threshold = 0.6
 
-# Sidebar Navigation
 with st.sidebar:
-    # Sidebar content
+    # Logo and App Title
     st.markdown("""
-    <div style="text-align: center; margin: 2rem 0 3rem 0;">
-        <h2 style="color: var(--primary); margin-bottom: 0.5rem;">InSignia</h2>
-        <p style="color: var(--dark); opacity: 0.8; font-size: 0.9rem;">Bridging Communication Gaps</p>
+    <div style="text-align: center; margin: 1.5rem 0 2.5rem 0;">
+        <div style="background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%); width: 80px; height: 80px; border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem auto; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <span style="font-size: 2.5rem;">🤟</span>
+        </div>
+        <h2 style="color: var(--primary-dark); margin-bottom: 0.25rem; font-weight: 700;">InSignia</h2>
+        <p style="color: var(--text-light); font-size: 0.9rem; margin-bottom: 0;">AI Deteksi Bahasa Isyarat SIBI</p>
     </div>
     """, unsafe_allow_html=True)
     
-    selected = st.radio(
-        "Menu Navigasi",
-        ["🏠 Beranda", "🌟 Fitur Unggulan", "📷 Deteksi", "📚 Kamus", "🎤 Speech to Visual", "💬 Chatbot"],
-        key='nav_radio',
-        index=["🏠 Beranda", "🌟 Fitur Unggulan", "📷 Deteksi", "📚 Kamus", "🎤 Speech to Visual", "💬 Chatbot"].index(st.session_state.current_page)
-    )
+    # Navigation Menu
+    menu_items = [
+        {"icon": "🏠", "label": "Beranda", "key": "home"},
+        {"icon": "🌟", "label": "Fitur Unggulan", "key": "features"},
+        {"icon": "📷", "label": "Deteksi SIBI", "key": "detection"},
+        {"icon": "📚", "label": "Kamus SIBI", "key": "dictionary"},
+        {"icon": "🎤", "label": "Speech to SIBI", "key": "speech"},
+        {"icon": "💬", "label": "Chatbot", "key": "chatbot"}
+    ]
     
-    if selected != st.session_state.current_page:
-        st.session_state.current_page = selected
-        st.rerun()
+    selected_page = st.session_state.current_page.split()[-1]
+    
+    for item in menu_items:
+        if st.button(f"{item['icon']} {item['label']}", 
+                    key=item['key'],
+                    use_container_width=True,
+                    type="primary" if selected_page == item['label'] else "secondary"):
+            st.session_state.current_page = f"{item['icon']} {item['label']}"
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # User Guide
+    with st.expander("📖 Panduan Pengguna", expanded=False):
+        st.markdown("""
+        <div style="font-size: 0.85rem;">
+            <p><strong>1. Deteksi SIBI:</strong> Aktifkan kamera dan tunjukkan isyarat SIBI</p>
+            <p><strong>2. Kamus SIBI:</strong> Pelajari huruf dan kata dalam SIBI</p>
+            <p><strong>3. Speech to SIBI:</strong> Ucapkan kata untuk melihat visual SIBI</p>
+            <p><strong>4. Chatbot:</strong> Tanya apa saja tentang SIBI</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Footer
+    st.markdown("""
+    <div style="text-align: center; font-size: 0.8rem; color: var(--text-light); margin-top: 2rem;">
+        <p>Versi 1.0.0</p>
+        <p>© 2024 Tim InSignia</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Page Content
+# --- Page Content Functions ---
 def landing_page():
-    # Hero Section
-    with st.container():
-        col1, col2 = st.columns([1.2, 1])
-        with col1:
-            st.markdown("""
-            <div class="hero">
-                <h1 style="font-size: 10rem; margin-bottom: 1rem;"><span class="gradient-text">InSignia</span></h1>
-                <h2 style="font-size: 2rem; font-weight: 600; margin-top: 0; color: var(--primary-dark);">
-                    Inovasi Deteksi Bahasa Isyarat SIBI Berbasis AI
-                </h2>
-                <p style="font-size: 1.2rem; line-height: 1.8; margin-bottom: 2rem; opacity: 0.9;">
-                    Platform AI inovatif untuk deteksi Bahasa Isyarat SIBI real-time, menjembatani komunikasi inklusif bagi penyandang disabilitas pendengaran dan masyarakat umum.
-                </p>
-                <div style="margin-top: 3rem;">
-                    <span class="badge" style="background-color: var(--primary);">Inklusif</span>
-                    <span class="badge" style="background-color: var(--success);">Real-time</span>
-                    <span class="badge" style="background-color: var(--secondary);">Mudah Digunakan</span>
-                </div>
+    col1, col2 = st.columns([1.2, 1])
+    with col1:
+        st.markdown("""
+        <div class="hero">
+            <h1 style="margin-bottom: 1rem;"><span class="gradient-text">InSignia</span></h1>
+            <h2 style="font-size: 2.5rem; font-weight: 700; margin-top: 0; color: var(--primary-dark);">
+                Real-time SIBI Detection for Inclusive Education
+            </h2>
+            <p style="font-size: 1.3rem; line-height: 1.8; margin-bottom: 2rem; opacity: 0.9;">
+                Platform AI inovatif untuk deteksi Bahasa Isyarat SIBI real-time, menjembatani komunikasi inklusif bagi penyandang disabilitas Rungu Wicara dan masyarakat umum.
+            </p>
+            <div style="margin-top: 3rem;">
+                <span class="badge" style="background-color: var(--primary);">Inklusif</span>
+                <span class="badge" style="background-color: #28A745;">Real-time</span>
+                <span class="badge" style="background-color: var(--secondary);">Mudah Digunakan</span>
             </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("🚀 Mulai Sekarang", key="start_button_landing", use_container_width=True, type="primary"):
-                st.session_state.current_page = "🌟 Fitur Unggulan"
-                st.rerun()
+        </div>
+        """, unsafe_allow_html=True)
         
-        with col2:
-            st.image("WhatsApp Image 2025-06-01 at 03.24.53_e4edf93b.jpg", 
-                    use_container_width=True, caption="Komunikasi Tanpa Batas")
+        st.markdown("<div style='margin-top: 3rem;'>", unsafe_allow_html=True)
+        if st.button("🚀 Mulai jelajahi InSignia", key="start_button_landing", use_container_width=True, type="primary"):
+            st.session_state.current_page = "🌟 Fitur Unggulan"
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with col2:
+        st.image("WhatsApp Image 2025-06-01 at 03.24.53_e4edf93b.jpg", use_container_width=True, caption="Komunikasi Tanpa Batas")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
 
-    # About Section
     with st.container():
         st.markdown("""
-        <div style="text-align: center; margin: 4rem 0;">
-            <h1 style="color: var(--primary-dark);">Tentang <span class="gradient-text">InSignia</span></h1>
-            <p style="color: var(--dark); opacity: 0.8; font-size: 1.1rem; max-width: 800px; margin: 0 auto;">
-                InSignia hadir sebagai solusi inovatif untuk mengatasi hambatan komunikasi yang dialami oleh lebih dari 2,5 juta penyandang disabilitas pendengaran di Indonesia. Dengan pendekatan berbasis teknologi, kami memberdayakan komunikasi inklusif antara pengguna bahasa isyarat dan masyarakat luas.
+        <div class="about-section-text">
+            <h1>Tentang <span class="gradient-text">InSignia</span></h1>
+            <p>
+                InSignia hadir sebagai <b>solusi AI terdepan</b> yang memfasilitasi komunikasi inklusif melalui <b>deteksi Bahasa Isyarat SIBI secara real-time</b>. Kami hadir untuk mengatasi hambatan komunikasi yang dialami oleh lebih dari <b>2,5 juta penyandang disabilitas pendengaran di Indonesia</b>, memberdayakan interaksi yang setara dan bermakna.
             </p>
         </div>
         """, unsafe_allow_html=True)
         
+        st.markdown("<div class='vision-tech-grid'>", unsafe_allow_html=True)
         col1, col2 = st.columns([1, 1])
         with col1:
             st.markdown("""
-            <div style="background: white; border-radius: 16px; padding: 2rem; height: 100%;">
-                <h3 style="color: var(--primary); margin-top: 0;">Visi Kami</h3>
+            <div class="card">
+                <h3>Visi Kami</h3>
                 <p style="line-height: 1.8;">
-                    <span style="font-size: 1.5rem; color: var(--secondary);">"</span>
-                    Menciptakan dunia yang lebih inklusif di mana bahasa isyarat dapat dipahami oleh semua orang,
-                    menghilangkan hambatan komunikasi antara penyandang disabilitas pendengaran dengan masyarakat umum.
-                    <span style="font-size: 1.5rem; color: var(--secondary);">"</span>
+                    Mewujudkan dunia yang <b>sepenuhnya inklusif</b>, di mana <b>Bahasa Isyarat SIBI mudah dipahami</b> oleh siapa saja, menjembatani kesenjangan komunikasi demi interaksi yang setara dan bermartabat.
                 </p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             st.markdown("""
-            <div style="background: white; border-radius: 16px; padding: 2rem; height: 100%;">
-                <h3 style="color: var(--primary); margin-top: 0;">Teknologi Kami</h3>
+            <div class="card">
+                <h3>Teknologi Kami</h3>
                 <p style="line-height: 1.8;">
-                    Menggunakan kombinasi <strong>YOLO Object Detection</strong> dan <strong>Azure Speech Recognition</strong>,
-                    InSignia mampu menerjemahkan bahasa isyarat secara real-time dengan akurasi tinggi.
+                    Didukung <b>YOLO Object Detection</b> dan <b>Azure Speech Recognition</b>, InSignia mampu menerjemahkan Bahasa Isyarat SIBI dengan <b>akurasi tinggi dan kecepatan real-time</b>. Kami memanfaatkan kekuatan inti dari <b>Computer Vision, Artificial Intelligence, dan Natural Language Processing</b> untuk solusi ini.
                 </p>
-                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem;">
                     <span class="badge" style="background-color: var(--primary-light);">Computer Vision</span>
-                    <span class="badge" style="background-color: var(--accent);">AI</span>
+                    <span class="badge" style="background-color: var(--accent); color: var(--text-color);">AI</span>
                     <span class="badge" style="background-color: var(--secondary);">NLP</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
 
-    # Value Proposition
-    st.markdown("""
-    <div style="text-align: center; margin: 4rem 0;">
-        <h1 style="color: var(--primary-dark);">✨ Keunggulan <span class="gradient-text">InSignia</span></h1>
-        <p style="color: var(--dark); opacity: 0.8; font-size: 1.1rem;">Solusi lengkap untuk komunikasi inklusif</p>
-    </div>
-    """, unsafe_allow_html=True)
+    with st.container():
+        st.markdown("""
+        <div style="text-align: center; margin: 4rem 0;">
+            <h1>✨ Keunggulan <span class="gradient-text">InSignia</span></h1>
+            <p style="color: var(--text-light); font-size: 1.2rem;">Solusi lengkap dan terdepan untuk komunikasi inklusif.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    cols = st.columns(3)
-    features = [
-        {"icon": "⚡", "title": "Real-time Detection", "desc": "Deteksi bahasa isyarat secara langsung dengan akurasi tinggi menggunakan model YOLO terbaru"},
-        {"icon": "🤖", "title": "Kecerdasan Buatan", "desc": "Ditenagai oleh teknologi AI dari Azure untuk hasil terbaik"},
-        {"icon": "👐", "title": "Multi-Modal", "desc": "Dukung input suara, teks, dan visual dalam satu platform"}
-    ]
-    
-    for i, feature in enumerate(features):
-        with cols[i]:
-            with st.container():
+        st.markdown("<div class='how-it-works-grid features-grid'>", unsafe_allow_html=True)
+        cols = st.columns(3)
+        features = [
+            {"icon": "⚡", "title": "Deteksi Real-time", "desc": "Mendeteksi dan menerjemahkan Bahasa Isyarat SIBI secara instan dengan model YOLO terbaru, memberikan respons cepat untuk komunikasi yang lancar."},
+            {"icon": "🤖", "title": "Kecerdasan Buatan Canggih", "desc": "Ditenagai oleh teknologi AI mutakhir dari Azure, memastikan akurasi dan keandalan yang luar biasa dalam setiap terjemahan."},
+            {"icon": "🌐", "title": "Solusi Multi-Modal", "desc": "Mendukung input visual (kamera), suara (mikrofon), dan teks, serta dilengkapi Chatbot interaktif untuk pengalaman komunikasi yang komprehensif."}
+        ]
+        
+        for i, feature in enumerate(features):
+            with cols[i]:
                 st.markdown(f"""
                 <div class="card">
-                    <div style="font-size: 2.5rem; margin-bottom: 1.5rem; color: var(--primary);">{feature['icon']}</div>
+                    <div style="font-size: 3rem; margin-bottom: 1.5rem; color: var(--primary);">{feature['icon']}</div>
                     <h3>{feature['title']}</h3>
-                    <p style="line-height: 1.7; color: var(--dark); opacity: 0.9;">{feature['desc']}</p>
+                    <p style="line-height: 1.7; color: var(--text-light); opacity: 0.9;">{feature['desc']}</p>
                 </div>
                 """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
 
-    # How It Works
-    st.markdown("""
-    <div style="text-align: center; margin: 4rem 0;">
-        <h1 style="color: var(--primary-dark);">🛠️ Cara Kerja <span class="gradient-text">InSignia</span></h1>
-        <p style="color: var(--dark); opacity: 0.8; font-size: 1.1rem;">Proses sederhana untuk komunikasi yang kompleks</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    steps = st.columns(3)
-    with steps[0]:
+    with st.container():
         st.markdown("""
-        <div class="card">
-            <div style="background: rgba(67,97,238,0.1); width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-                <span style="font-size: 1.5rem;">1</span>
-            </div>
-            <h3>Input</h3>
-            <p style="line-height: 1.7; color: var(--dark); opacity: 0.9;">
-                Masukkan bahasa isyarat melalui kamera atau suara melalui mikrofon
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    with steps[1]:
-        st.markdown("""
-        <div class="card">
-            <div style="background: rgba(67,97,238,0.1); width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-                <span style="font-size: 1.5rem;">2</span>
-            </div>
-            <h3>Proses</h3>
-            <p style="line-height: 1.7; color: var(--dark); opacity: 0.9;">
-                Sistem AI kami akan mengenali dan menerjemahkan input Anda
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    with steps[2]:
-        st.markdown("""
-        <div class="card">
-            <div style="background: rgba(67,97,238,0.1); width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-                <span style="font-size: 1.5rem;">3</span>
-            </div>
-            <h3>Output</h3>
-            <p style="line-height: 1.7; color: var(--dark); opacity: 0.9;">
-                Hasil terjemahan ditampilkan dalam format yang mudah dipahami
-            </p>
+        <div style="text-align: center; margin: 4rem 0;">
+            <h1>🛠️ Cara Kerja <span class="gradient-text">InSignia</span></h1>
+            <p style="color: var(--text-light); opacity: 0.8; font-size: 1.2rem;">Proses yang efisien untuk komunikasi yang kompleks.</p>
         </div>
         """, unsafe_allow_html=True)
 
-    st.divider()
+        st.markdown("<div class='how-it-works-grid'>", unsafe_allow_html=True)
+        steps = st.columns(3)
+        step_data = [
+            {"num": "1", "title": "Input", "desc": "Pengguna memasukkan bahasa isyarat melalui kamera atau suara melalui mikrofon."},
+            {"num": "2", "title": "Proses AI", "desc": "Sistem AI canggih kami mengenali isyarat visual atau ucapan, lalu menerjemahkannya secara cerdas."},
+            {"num": "3", "title": "Output", "desc": "Hasil terjemahan ditampilkan secara instan dalam format teks yang mudah dipahami atau visual isyarat."}
+        ]
+        
+        for i, step in enumerate(step_data):
+            with steps[i]:
+                st.markdown(f"""
+                <div class="card">
+                    <div style="background: var(--primary-light); width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; color: var(--white); font-size: 2rem; font-weight: bold; box-shadow: 0 5px 15px rgba(var(--primary-light-rgb), 0.3);">
+                        {step['num']}
+                    </div>
+                    <h3>{step['title']}</h3>
+                    <p style="line-height: 1.7; color: var(--text-light); opacity: 0.9;">{step['desc']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Testimonials
-    st.markdown("""
-    <div style="text-align: center; margin: 4rem 0;">
-        <h1 style="color: var(--primary-dark);">📢 Testimoni <span class="gradient-text">Pengguna</span></h1>
-        <p style="color: var(--dark); opacity: 0.8; font-size: 1.1rem;">Apa kata mereka tentang InSignia</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
 
-    testimonials = st.columns(3)
-    testimonial_data = [
-        {"name": "Guru SLB", "role": "Pengajar Bahasa Isyarat", "quote": "Membantu siswa saya belajar bahasa isyarat dengan lebih interaktif dan menyenangkan."},
-        {"name": "Profesional", "role": "HRD Perusahaan", "quote": "Antarmuka yang intuitif sangat membantu komunikasi yang lancar dengan rekan tuli di lingkungan kerja."},
-        {"name": "Tenaga Medis", "role": "Dokter Umum", "quote": "InSignia adalah alat revolusioner untuk memberikan layanan kesehatan yang lebih inklusif dan ramah disabilitas."}
-    ]
-    
-    for i, testimonial in enumerate(testimonial_data):
-        with testimonials[i]:
-            st.markdown(f"""
-            <div class="testimonial">
-                <p style="font-style: italic; margin-bottom: 1.5rem; line-height: 1.7; color: var(--dark);">
-                    "{testimonial['quote']}"
-                </p>
-                <p style="font-weight: bold; color: var(--primary); margin-bottom: 0.25rem;">{testimonial['name']}</p>
-                <p style="font-size: 0.9rem; color: var(--dark); opacity: 0.7;">{testimonial['role']}</p>
-            </div>
-            """, unsafe_allow_html=True)
+    with st.container():
+        st.markdown("""
+        <div style="text-align: center; margin: 4rem 0;">
+            <h1>📢 Testimoni <span class="gradient-text">Pengguna</span></h1>
+            <p style="color: var(--text-light); opacity: 0.8; font-size: 1.2rem;">Apa kata mereka yang telah merasakan dampak positif InSignia.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.divider()
+        st.markdown("<div class='how-it-works-grid'>", unsafe_allow_html=True)
+        testimonials_cols = st.columns(3)
+        testimonial_data = [
+            {"name": "Budi Santoso", "role": "Guru SLB", "quote": "InSignia sangat membantu siswa saya dalam belajar bahasa isyarat. Prosesnya jadi lebih interaktif dan menyenangkan, mendorong mereka untuk lebih aktif berkomunikasi. Benar-benar alat yang revolusioner di kelas."},
+            {"name": "Siti Aminah", "role": "Profesional HRD", "quote": "Sebagai HRD, saya sangat menghargai kemudahan komunikasi dengan rekan tuli di perusahaan. Antarmuka InSignia yang intuitif telah meningkatkan inklusivitas dan kolaborasi tim secara signifikan."},
+            {"name": "Dr. Rina Dewi", "role": "Dokter Umum", "quote": "Memberikan pelayanan kesehatan yang inklusif adalah prioritas. InSignia adalah alat vital yang memungkinkan saya berinteraksi lebih efektif dengan pasien tunarungu, memastikan mereka mendapatkan penanganan yang layak dan nyaman."}
+        ]
+        
+        for i, testimonial in enumerate(testimonial_data):
+            with testimonials_cols[i]:
+                st.markdown(f"""
+                <div class="testimonial card">
+                    <p style="font-style: italic; margin-bottom: 1.5rem; line-height: 1.7; color: var(--text-color);">
+                        "{testimonial['quote']}"
+                    </p>
+                    <div>
+                        <p style="font-weight: bold; color: var(--primary); margin-bottom: 0.25rem; font-size: 1.1rem;">{testimonial['name']}</p>
+                        <p style="font-size: 0.95rem; color: var(--text-light); opacity: 0.8;">{testimonial['role']}</p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Call to Action
-    st.markdown("""
-    <div style="text-align: center; margin: 4rem 0;">
-        <h1 style="color: var(--primary-dark); margin-bottom: 1.5rem;">Siap Memulai Perjalanan <span class="gradient-text">Inklusivitas Anda?</span></h1>
-        <p style="font-size: 1.2rem; color: var(--dark); opacity: 0.9; margin-bottom: 2rem; max-width: 700px; margin-left: auto; margin-right: auto;">
-            Bergabunglah dengan ribuan pengguna yang telah merasakan manfaat InSignia dalam memecahkan hambatan komunikasi!
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🚀 Mulai Sekarang", key="start_button", use_container_width=True, type="primary"):
-            st.session_state.current_page = "🌟 Fitur Unggulan"
-            st.rerun()
+    with st.container():
+        st.markdown("""
+        <div style="text-align: center; margin: 4rem 0;">
+            <h1 style="margin-bottom: 1.5rem;">Siap Memulai Perjalanan <span class="gradient-text">Inklusivitas Anda?</span></h1>
+            <p style="font-size: 1.2rem; color: var(--text-light); opacity: 0.9; margin-bottom: 3rem; max-width: 700px; margin-left: auto; margin-right: auto;">
+                Bergabunglah dengan ribuan pengguna yang telah merasakan manfaat InSignia dalam memecahkan hambatan komunikasi dan menciptakan dunia yang lebih setara.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🚀 Mulai Sekarang", key="start_button_cta", use_container_width=True, type="primary"):
+                st.session_state.current_page = "🌟 Fitur Unggulan"
+                st.rerun()
+            st.markdown("<p style='text-align: center; margin-top: 1rem; font-size: 0.9rem; color: var(--text-light);'>Tidak perlu instalasi, langsung akses dari browser Anda.</p>", unsafe_allow_html=True)
 
 def features_page():
-    if st.button("← Kembali ke Beranda", key="back_features_page_top"):
-        st.session_state.current_page = "🏠 Beranda"
-        st.rerun()
-
     st.markdown("""
     <div style="text-align: center; margin-bottom: 3rem;">
-        <h1 style="color: var(--primary-color);">🌟 Jelajahi InSignia</h1>
-        <p style="color: var(--text-color); font-size: 1.1rem;">Pilih fitur yang ingin Anda gunakan:</p>
+        <h1 style="color: var(--primary-dark);">🌟 Jelajahi <span class="gradient-text">Fitur InSignia</span></h1>
+        <p style="color: var(--text-light); font-size: 1.1rem;">Temukan bagaimana InSignia memberdayakan komunikasi inklusif.</p>
     </div>
     """, unsafe_allow_html=True)
 
     feature_data = [
-        {"icon": "📷", "title": "Deteksi Real-time", "description": "Deteksi bahasa isyarat melalui kamera perangkat Anda secara langsung dan akurat.", "key": "open_detect", "page": "📷 Deteksi", "color": "#4361ee"},
-        {"icon": "📚", "title": "Kamus SIBI", "description": "Pelajari bahasa isyarat dengan panduan lengkap, ilustrasi, dan contoh penggunaan.", "key": "open_dict", "page": "📚 Kamus", "color": "#3a0ca3"},
-        {"icon": "🎤", "title": "Speech to Visual", "description": "Konversi ucapan Anda menjadi visual bahasa isyarat, mempermudah komunikasi dua arah.", "key": "open_speech", "page": "🎤 Speech to Visual", "color": "#7209b7"},
-        {"icon": "💬", "title": "Chatbot InSignia", "description": "Dapatkan bantuan interaktif dan informasi seputar bahasa isyarat dari chatbot cerdas kami.", "key": "open_chat", "page": "💬 Chatbot", "color": "#f72585"}
+        {"icon": "📷", "title": "Deteksi Real-time", "description": "Deteksi Bahasa Isyarat SIBI secara langsung melalui kamera perangkat Anda dengan akurasi tinggi, mengubah isyarat menjadi teks secara instan.", "key": "open_detect", "page": "📷 Deteksi", "color": "#4A63E0"}, # primary
+        {"icon": "📚", "title": "Kamus SIBI Interaktif", "description": "Pelajari Bahasa Isyarat SIBI dengan panduan visual lengkap, ilustrasi interaktif, dan contoh penggunaan untuk memperkaya pemahaman Anda.", "key": "open_dict", "page": "📚 Kamus", "color": "#EE5F8E"}, # secondary
+        {"icon": "🎤", "title": "Speech to Visual", "description": "Konversikan ucapan Anda menjadi visual Bahasa Isyarat SIBI, memungkinkan komunikasi dua arah yang lancar antara pengguna bahasa isyarat dan teman bicara mereka.", "key": "open_speech", "page": "🎤 Speech to Visual", "color": "#7209B7"}, # purple
+        {"icon": "💬", "title": "Chatbot InSignia", "description": "Dapatkan bantuan instan, informasi mendalam, dan panduan praktis seputar Bahasa Isyarat SIBI dan komunikasi inklusif dari chatbot cerdas kami.", "key": "open_chat", "page": "💬 Chatbot", "color": "#FFD23F"} # accent
     ]
 
-    # Display features in a 2x2 grid
+    st.markdown("<div class='how-it-works-grid features-grid'>", unsafe_allow_html=True)
     rows = [feature_data[i:i + 2] for i in range(0, len(feature_data), 2)]
     for row in rows:
         cols = st.columns(len(row))
         for i, feature in enumerate(row):
             with cols[i]:
-                with st.container():
-                    st.markdown(f"""
-                    <div class="card" style="border-top: 4px solid {feature['color']};">
-                        <div style="font-size: 2.5rem; margin-bottom: 1.5rem; color: {feature['color']};">{feature['icon']}</div>
-                        <h3>{feature['title']}</h3>
-                        <p style="margin-bottom: 1.5rem;">{feature['description']}</p>
-                        <div style="margin-top: auto;">
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button(f"Buka {feature['title'].split(' ')[0]}", key=feature['key'], use_container_width=True):
-                        st.session_state.current_page = feature['page']
-                        st.rerun()
+                st.markdown(f"""
+                <div class="card" style="border-top: 5px solid {feature['color']};">
+                    <div style="font-size: 3rem; margin-bottom: 1.5rem; color: {feature['color']};">{feature['icon']}</div>
+                    <h3>{feature['title']}</h3>
+                    <p style="margin-bottom: 1.5rem; color: var(--text-light); line-height: 1.7;">{feature['description']}</p>
+                    <div style="margin-top: auto; width: 100%;"> </div>
+                </div>
+                """, unsafe_allow_html=True)
+                # The button is intentionally placed outside the markdown string to ensure Streamlit renders it as a proper widget.
+                if st.button(f"Buka {feature['title'].split(' ')[0]}", key=feature['key'], use_container_width=True, type="primary"):
+                    st.session_state.current_page = feature['page']
+                    st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-    if st.button("← Kembali ke Beranda", key="back_features_page_bottom", use_container_width=True):
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
+    if st.button("← Kembali ke Beranda", key="back_features_page_bottom", use_container_width=True, type="secondary"):
         st.session_state.current_page = "🏠 Beranda"
         st.rerun()
 
 def detection_page():
-    if st.button("← Kembali ke Fitur Unggulan", key="back_from_detection"):
+    if st.button("← Kembali", key="back_from_detection", type="secondary"):
         st.session_state.current_page = "🌟 Fitur Unggulan"
         st.rerun()
     
@@ -415,78 +433,117 @@ def detection_page():
             <p style="color: var(--text-color);">Aktifkan kamera dan pastikan tangan terlihat jelas di area kamera.</p>
         </div>
         """, unsafe_allow_html=True)
+
+        with st.expander("⚙️ Pengaturan Deteksi Kamera", expanded=False):
+            st.session_state.show_fps_camera = st.checkbox("Tampilkan FPS di Kamera", value=st.session_state.show_fps_camera)
+            st.session_state.detection_threshold = st.slider("Threshold Deteksi (Confidence)", 0.0, 1.0, st.session_state.detection_threshold, 0.05)
+            st.info("Atur threshold untuk menyesuaikan sensitivitas deteksi. Nilai lebih tinggi mengurangi deteksi palsu.", icon="ℹ️")
         
-        with st.expander("⚙️ Pengaturan Kamera", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                show_fps = st.checkbox("Tampilkan FPS", value=True)
-            with col2:
-                detection_threshold = st.slider("Threshold Deteksi", 0.1, 1.0, 0.5)
-        
-        st.markdown("""
-        <div style="background-color: #f8f9fa; border-radius: var(--border-radius); padding: 1.5rem; margin-bottom: 2rem;">
-            <h3 style="color: var(--primary-color); margin-top: 0;">Petunjuk Penggunaan:</h3>
-            <ol style="padding-left: 1.5rem;">
-                <li>Pastikan pencahayaan cukup</li>
-                <li>Posisikan tangan di tengah frame</li>
-                <li>Gunakan latar belakang yang kontras</li>
-                <li>Buat gerakan jelas dan terpisah</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        ctx = webrtc_streamer(
-            key="sign-lang",
-            video_transformer_factory=SignLanguageDetector,
-            media_stream_constraints={
-                "video": {
-                    "width": {"min": 640, "ideal": 1280, "max": 1920},
-                    "height": {"min": 480, "ideal": 720, "max": 1080},
-                    "frameRate": {"ideal": 30, "max": 60},
-                    "facingMode": "user"
+        col_cam, col_text = st.columns([2, 1])
+        with col_cam:
+            st.markdown("<h3>Live Kamera Deteksi</h3>", unsafe_allow_html=True)
+            ctx = webrtc_streamer(
+                key="sign-lang",
+                video_transformer_factory=SignLanguageDetector,
+                media_stream_constraints={
+                    "video": {
+                        "width": {"min": 640, "ideal": 1280, "max": 1920},
+                        "height": {"min": 480, "ideal": 720, "max": 1080},
+                        "frameRate": {"ideal": 30, "max": 60},
+                        "facingMode": "user"
+                    },
+                    "audio": False
                 },
-                "audio": False
-            }
-        )
-        
-        if ctx.state.playing:
-            st.info("🔍 Sedang mendeteksi bahasa isyarat...", icon="ℹ️")
-        else:
-            st.warning("⚠️ Kamera belum diaktifkan. Klik 'Start' untuk memulai deteksi.", icon="⚠️")
+                rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}, # Add STUN server for NAT traversal
+                async_transform=True # Enable async processing for smoother video
+            )
+            
+            if ctx.state.playing:
+                st.success("✅ Kamera aktif, deteksi sedang berjalan!", icon="🎉")
+            else:
+                st.warning("⚠️ Kamera belum diaktifkan. Klik 'START' untuk memulai deteksi.", icon="⚠️")
+
+        with col_text:
+            st.markdown("""
+            <div style="
+                background-color: #f0f7ff;
+                padding: 1em;
+                border-radius: 0.5em;
+                border-left: 4px solid #1e88e5;
+                margin-bottom: 1em;
+            ">
+                <h3><strong>💡Petunjuk Penggunaan</strong></h3>
+                <ol style="padding-left: 1.5rem; line-height: 1.8;">
+                    <li><b>Pencahayaan Cukup:</b> Pastikan area tangan Anda terang dan tidak ada bayangan.</li>
+                    <li><b>Posisikan di Tengah:</b> Letakkan tangan Anda di tengah bingkai kamera.</li>
+                    <li><b>Latar Belakang Kontras:</b> Gunakan latar belakang polos atau kontras agar tangan lebih mudah dikenali.</li>
+                    <li><b>Gerakan Jelas:</b> Lakukan gerakan isyarat dengan jelas dan terpisah.</li>
+                    <li><b>Reset Teks:</b> Teks deteksi akan terakumulasi. Gunakan tombol "Hapus Teks Deteksi" untuk memulai ulang.</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.session_state.detected_sign_text:
+                if st.button("Terjemahkan ke Suara (Preview)", key="translate_to_speech", use_container_width=True):
+                    text_to_speak = st.session_state.detected_sign_text
+                    if text_to_speak:
+                        with st.spinner("Mengonversi teks ke suara..."):
+                            try:
+                                result = speech_config.speech_synthesizer.speak_text_async(text_to_speak).get()
+                                if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                                    st.success("Audio terjemahan siap.")
+                                    # For playing audio in Streamlit, usually you'd save it and play it.
+                                    # For a simple demo, Azure's SDK plays it directly if speaker is enabled.
+                                else:
+                                    st.error(f"Gagal mengonversi teks ke suara: {result.reason}")
+                            except Exception as e:
+                                st.error(f"Error dalam konversi teks ke suara: {e}")
+                    else:
+                        st.warning("Tidak ada teks untuk diterjemahkan ke suara.")
 
 def dictionary_page():
-    if st.button("← Kembali ke Fitur Unggulan", key="back_from_dictionary"):
-        st.session_state.current_page = "🌟 Fitur Unggulan"
-        st.rerun()
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h1 style="color: var(--primary-dark);">📚 <span class="gradient-text">Kamus Bahasa Isyarat SIBI</span></h1>
+        <p style="color: var(--text-light); font-size: 1.1rem;">Telusuri dan pelajari Bahasa Isyarat SIBI dengan panduan visual interaktif.</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    with st.container():
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h1 style="color: var(--primary-color);">📚 Kamus SIBI</h1>
-            <p style="color: var(--text-color);">Pelajari bahasa isyarat Indonesia dengan panduan visual lengkap.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        search_term = st.text_input("🔍 Cari huruf atau kata", placeholder="Masukkan huruf atau kata kunci")
-        
-        class_map = get_class_mapping()
-        image_map = load_label_images()
+    search_term = st.text_input("🔍 Cari huruf atau kata", placeholder="Contoh: A, B, Halo, Terima Kasih", key="dict_search_input").strip()
+    
+    class_map = get_class_mapping()
+    image_map = load_label_images()
 
-        # Filter dictionary berdasarkan pencarian
-        if search_term:
-            filtered_items = [(k, v) for k, v in class_map.items() if search_term.lower() in v.lower()]
+    filtered_items = []
+    if search_term:
+        # Prioritize exact letter match for single character search
+        if len(search_term) == 1 and search_term.isalpha():
+            for class_id, letter in class_map.items():
+                if search_term.upper() == letter:
+                    filtered_items.append((class_id, letter))
         else:
-            filtered_items = list(class_map.items())
+            # For multi-character search (implies searching for a word, which needs a different dataset)
+            # For now, we only support alphabet lookup.
+            st.info("Fitur pencarian kata (selain alfabet tunggal) belum tersedia. Silakan cari per huruf (A-Y).", icon="ℹ️")
+            # Fallback to general alphabet search if no exact single letter match for multi-char input
+            for class_id, letter in class_map.items():
+                if search_term.upper() in letter: # This will still only match individual letters
+                    filtered_items.append((class_id, letter))
+    else:
+        filtered_items = list(class_map.items())
 
-        # Display dictionary in a grid
-        st.markdown("### Alfabet Bahasa Isyarat")
-        st.markdown("Berikut adalah daftar lengkap huruf dalam Sistem Isyarat Bahasa Indonesia (SIBI):")
-        
-        cols_per_row = 5
-        items = filtered_items
+    st.markdown("### Alfabet Bahasa Isyarat SIBI")
+    st.markdown("<p style='color: var(--text-light);'>Berikut adalah daftar lengkap huruf dalam Sistem Isyarat Bahasa Indonesia (SIBI) disertai visual:</p>", unsafe_allow_html=True)
+    
+    if not filtered_items:
+        st.warning("Tidak ada hasil ditemukan untuk pencarian Anda.", icon="⚠️")
+    else:
+        cols_per_row = 6
+        items = sorted(filtered_items, key=lambda x: x[1])
         num_items = len(items)
         num_rows = (num_items + cols_per_row - 1) // cols_per_row
 
+        st.markdown("<div class='how-it-works-grid'>", unsafe_allow_html=True)
         for r in range(num_rows):
             cols = st.columns(cols_per_row)
             for i in range(cols_per_row):
@@ -495,19 +552,24 @@ def dictionary_page():
                     class_id, letter = items[idx]
                     img_path = image_map.get(str(class_id))
                     with cols[i]:
-                        with st.container():
-                            st.markdown(f"""
-                            <div style="text-align: center; padding: 1rem; border-radius: var(--border-radius); background-color: white; box-shadow: var(--box-shadow);">
-                                <h3 style="margin-top: 0; color: var(--primary-color);">{letter}</h3>
+                        st.markdown(f"""
+                        <div class="dictionary-card">
+                            <h3 style="margin-top: 0; color: var(--primary-dark);">{letter}</h3>
                             """, unsafe_allow_html=True)
-                            if img_path:
-                                st.image(img_path, use_container_width=True)
-                            else:
-                                st.markdown("*(Gambar tidak tersedia)*")
-                            st.markdown("</div>", unsafe_allow_html=True)
+                        if img_path and os.path.exists(img_path):
+                            st.image(img_path, use_container_width=True)
+                        else:
+                            st.markdown("<p style='color: var(--text-light); font-size: 0.9rem;'>*(Gambar tidak tersedia)*</p>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
+    if st.button("← Kembali", key="back_from_dictionary_bottom", use_container_width=True, type="secondary"):
+        st.session_state.current_page = "🌟 Fitur Unggulan"
+        st.rerun()
 
 def speech_page():
-    if st.button("← Kembali ke Fitur Unggulan", key="back_from_speech"):
+    if st.button("← Kembali", key="back_from_speech", type="secondary"):
         st.session_state.current_page = "🌟 Fitur Unggulan"
         st.rerun()
     
@@ -515,11 +577,14 @@ def speech_page():
         st.markdown("""
         <div style="text-align: center; margin-bottom: 2rem;">
             <h1 style="color: var(--primary-color);">🎤 Speech to Visual</h1>
-            <p style="color: var(--text-color);">Konversi ucapan Anda menjadi visual bahasa isyarat.</p>
+            <p style="color: var(--text-color);">Konversi ucapan Anda menjadi visual bahasa isyarat SIBI.</p>
         </div>
         """, unsafe_allow_html=True)
         
         tab1, tab2 = st.tabs(["🎙️ Rekam Suara", "📂 Upload Audio"])
+        
+        detected_text = None
+        audio_path = None
         
         with tab1:
             st.markdown("### 🔴 Rekam Suara Anda")
@@ -529,6 +594,7 @@ def speech_page():
             audio_path = None
             
             if audio is not None and len(audio) > 0:
+                st.audio(audio.export().read(), format="audio/wav")
                 if st.button("🔊 Proses Rekaman", key="process_recording", use_container_width=True):
                     with st.spinner("🔄 Memproses rekaman..."):                        
                         if isinstance(audio, AudioSegment):
@@ -577,167 +643,193 @@ def speech_page():
                         else:
                             st.error(f"Gagal mengenali suara. Reason: {result.reason}")
 
-        # Display Sign Language Visualization
-        if 'detected_text' in st.session_state and st.session_state.detected_text:
-            detected_text = st.session_state.detected_text
-            class_map = get_class_mapping()
-            inv_class_map = {v: str(k) for k, v in class_map.items()}
-            image_map = load_label_images()
+        # Display sign language visuals based on detected/entered text
+        st.markdown("<hr class='styled-divider'>", unsafe_allow_html=True)
+        st.markdown("### 🖼️ Visual Bahasa Isyarat dari Teks")
 
-            st.markdown("### 👐 Visualisasi Bahasa Isyarat")
-            st.markdown(f"**Teks:** {detected_text}")
-            
-            # Display in rows of 8 characters each
-            chars = list(detected_text)
-            num_rows = (len(chars) + 7) // 8  # 8 characters per row
-            
-            for row in range(num_rows):
-                start_idx = row * 8
-                end_idx = start_idx + 8
-                current_chars = chars[start_idx:end_idx]
+        # Create two columns for input and button
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            input_text_for_visuals = st.text_input(
+                "Atau masukkan teks manual untuk melihat visual SIBI:",
+                value=st.session_state.detected_text if 'detected_text' in st.session_state else "",
+                key="text_input_for_visuals",
+                placeholder="Contoh: HALO, TERIMA KASIH"
+            )
+        with col2:
+            st.write("")  # For vertical alignment
+            process_text = st.button("🔍 Tampilkan Visual", use_container_width=True)
+
+        # Display processing message
+        if process_text and input_text_for_visuals:
+            with st.spinner("🔄 Memproses teks dan menyiapkan visual SIBI..."):
+                time.sleep(0.5)  # Simulate processing time
                 
-                cols = st.columns(len(current_chars))
-                for i, char in enumerate(current_chars):
-                    with cols[i]:
-                        if char in inv_class_map:
-                            class_id = inv_class_map[char]
-                            img_path = image_map.get(class_id)
-                            if img_path:
-                                st.image(img_path, caption=char, width=100)
-                            else:
-                                st.markdown(f"**{char}**\n*(gambar tidak ditemukan)*")
-                        else:
-                            if char == " ":
-                                st.markdown("**␣**\n*(spasi)*")
-                            elif char == ".":
-                                st.markdown("**.**\n*(titik)*")
-                            elif char == ",":
-                                st.markdown("**.**\n*(koma)*")
-                            else:
-                                st.markdown(f"**{char}**\n*(tidak valid)*")
-
+                # Process the text and display visuals
+                class_map = get_class_mapping()
+                inv_class_map = {v: str(k) for k, v in class_map.items()}
+                image_map = load_label_images()
+                
+                # Clean and prepare the text
+                processed_text = input_text_for_visuals.strip().upper()
+                st.session_state.detected_text = processed_text  # Store for persistence
+                
+                st.markdown("### 👐 Visualisasi Bahasa Isyarat")
+                
+                # Display the original text
+                st.markdown(f"""
+                <div style="background: var(--card-bg); padding: 1rem; border-radius: var(--border-radius); 
+                            margin-bottom: 1rem; box-shadow: var(--box-shadow);">
+                    <p style="margin: 0; font-weight: 500;">Teks yang diproses:</p>
+                    <p style="margin: 0; font-size: 1.2rem;">{processed_text}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Filter valid SIBI characters
+                valid_chars = [c for c in processed_text if c in inv_class_map]
+                invalid_chars = [c for c in processed_text if c not in inv_class_map and c != ' ']
+                
+                # Show stats about the text
+                stats_col1, stats_col2 = st.columns(2)
+                with stats_col1:
+                    st.metric("Total Karakter", len(processed_text))
+                with stats_col2:
+                    st.metric("Huruf SIBI Valid", len(valid_chars))
+                
+                if invalid_chars:
+                    st.warning(f"Karakter berikut tidak memiliki visual SIBI: {', '.join(set(invalid_chars))}")
+                
+                # Display SIBI signs in a responsive grid
+                if valid_chars:
+                    st.markdown("#### Huruf SIBI yang Dikenali")
+                    
+                    # Display 6 signs per row
+                    cols_per_row = 6
+                    num_rows = (len(valid_chars) + cols_per_row - 1) // cols_per_row
+                    
+                    for row in range(num_rows):
+                        cols = st.columns(cols_per_row)
+                        start_idx = row * cols_per_row
+                        end_idx = start_idx + cols_per_row
+                        row_chars = valid_chars[start_idx:end_idx]
+                        
+                        for i, char in enumerate(row_chars):
+                            with cols[i]:
+                                class_id = inv_class_map[char]
+                                img_path = image_map.get(class_id)
+                                
+                                st.markdown(f"""
+                                <div style="text-align: center; padding: 0.5rem; margin-bottom: 1rem; 
+                                            background: var(--card-bg); border-radius: var(--border-radius); 
+                                            box-shadow: var(--box-shadow); transition: var(--transition);">
+                                    <h4 style="margin: 0.5rem 0; color: var(--primary-dark);">{char}</h4>
+                                """, unsafe_allow_html=True)
+                                
+                                if img_path and os.path.exists(img_path):
+                                    st.image(img_path, use_container_width=True)
+                                else:
+                                    st.markdown(f"""
+                                    <div style="height: 100px; display: flex; align-items: center; 
+                                                justify-content: center; background: #F3F4F6; 
+                                                border-radius: 8px; margin-bottom: 0.5rem;">
+                                        <p style="color: var(--text-light);">Gambar tidak tersedia</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.error("Tidak ada huruf SIBI yang valid dalam teks yang dimasukkan.")
+                    
+                # Add space before the next section
+                st.markdown("<br><br>", unsafe_allow_html=True)
+        elif process_text and not input_text_for_visuals:
+            st.warning("Silakan masukkan teks terlebih dahulu")
+    
 
 def chatbot_page():
-    if st.button("← Kembali ke Fitur Unggulan", key="back_from_chatbot"):
+    if st.button("← Kembali", key="back_from_chatbot", type="secondary"):
         st.session_state.current_page = "🌟 Fitur Unggulan"
         st.rerun()
-    
-    with st.container():
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h1 style="color: var(--primary-color);">💬 Chatbot InSignia</h1>
-            <p style="color: var(--text-color);">Tanya apa saja tentang bahasa isyarat dan komunikasi inklusif.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = [
-                {"role": "system", "content": "Kamu adalah asisten yang membantu menjelaskan bahasa isyarat untuk pengguna tunarungu dan teman bicara mereka. Gunakan bahasa yang ramah dan mudah dipahami."}
-            ]
 
-        if "trigger_chat" not in st.session_state:
-            st.session_state.trigger_chat = False
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h1 style="color: var(--primary-color);">💬 Chatbot <span class="gradient-text">InSignia</span></h1>
+        <p style="color: var(--text-color);">Ajukan pertanyaan seputar Bahasa Isyarat SIBI, inklusivitas, atau fitur InSignia.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        # Display chat history
-        chat_container = st.container()
-        with chat_container:
-            for msg in st.session_state.chat_history[1:]:
-                if msg["role"] == "user":
-                    st.markdown(
-                        f"""
-                        <div style="display: flex; justify-content: flex-end; margin-bottom: 1.5rem;">
-                            <div style="
-                                background: linear-gradient(90deg, #0066cc, #3399ff);
-                                color: white;
-                                padding: 1rem 1.25rem;
-                                border-radius: 18px 18px 0 18px;
-                                max-width: 80%;
-                                box-shadow: var(--box-shadow);
-                            ">
-                                <strong>Anda 🙋‍♀</strong><br>{html.escape(msg['content'])}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown(
-                        f"""
-                        <div style="display: flex; justify-content: flex-start; margin-bottom: 1.5rem;">
-                            <div style="
-                                background-color: white;
-                                color: var(--text-color);
-                                padding: 1rem 1.25rem;
-                                border-radius: 18px 18px 18px 0;
-                                max-width: 80%;
-                                box-shadow: var(--box-shadow);
-                            ">
-                                <strong>🤖 InSignia Bot</strong><br>{msg['content']}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+    # Display chat messages from history
+    for message in st.session_state.chatbot_messages:
+        if message["role"] == "user":
+            st.markdown(f"""
+            <div class="chat-row user-row">
+                <div class="chat-message-container user-message">
+                    <p>{html.escape(message["content"])}</p>
+                </div>
+                <div class="chat-avatar" style="background-color: #555;">😎</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="chat-row bot-row">
+                <div class="chat-avatar">🤖</div>
+                <div class="chat-message-container bot-message">
+                    <p>{html.escape(message["content"])}</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        # Show processing indicator
-        if st.session_state.trigger_chat:
-            with chat_container:
-                st.markdown(
-                    """
-                    <div style="display: flex; justify-content: flex-start; margin-bottom: 1.5rem;">
-                        <div style="
-                            background-color: white;
-                            color: var(--text-color);
-                            padding: 1rem 1.25rem;
-                            border-radius: 18px 18px 18px 0;
-                            max-width: 80%;
-                            box-shadow: var(--box-shadow);
-                        ">
-                            <strong>InSignia Bot</strong><br>
-                            <div style="display: flex; align-items: center;">
-                                <div style="margin-right: 0.5rem;">⚡</div>
-                                <div>Sedang memproses jawaban...</div>
-                            </div>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            
+    # User input
+    user_query = st.chat_input("Tanyakan sesuatu tentang SIBI atau InSignia...", key="chatbot_input")
+
+    if user_query:        
+        st.session_state.chatbot_messages.append({"role": "user", "content": user_query})        
+        with st.spinner("🤖 InSignia Bot sedang berpikir..."):
             try:
-                response = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=st.session_state.chat_history,
+                # Prepare messages for OpenAI API
+                messages_for_api = [
+                    {"role": "system", "content": "Anda adalah InSignia Bot, chatbot yang ramah dan informatif. Anda ahli dalam Bahasa Isyarat SIBI, inklusivitas untuk penyandang disabilitas pendengaran, dan fitur-fitur aplikasi InSignia. Berikan jawaban yang membantu, akurat, dan mendorong inklusivitas. Gunakan bahasa Indonesia yang baik dan benar."}
+                ] + st.session_state.chatbot_messages[-5:] # Send last 5 messages for context
+
+                response = openai_client.chat.completions.create(
+                    model="gpt-4", # Replace with your actual deployed model name (e.g., gpt-35-turbo, gpt-4)
+                    messages=messages_for_api,
                     temperature=0.7,
                     max_tokens=500
                 )
-                reply = response.choices[0].message.content
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                bot_response = response.choices[0].message.content
+                st.session_state.chatbot_messages.append({"role": "assistant", "content": bot_response})
             except Exception as e:
-                st.error(f"Gagal memanggil chatbot: {e}")
-                st.session_state.chat_history.append({"role": "assistant", "content": "Maaf, terjadi kesalahan saat memproses permintaan Anda."})
-            finally:
-                st.session_state.trigger_chat = False
-                st.rerun()
+                st.error(f"Maaf, terjadi kesalahan saat berkomunikasi dengan chatbot: {e}")
+                st.session_state.chatbot_messages.append({"role": "assistant", "content": "Maaf, saya tidak bisa memproses permintaan Anda saat ini. Silakan coba lagi nanti."})
+        st.rerun()
+    
+def settings_page():
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h1 style="color: var(--primary-color);">⚙️ Pengaturan Aplikasi</h1>
+        <p style="color: var(--text-color);">Sesuaikan preferensi InSignia Anda.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        # Chat input form
-        with st.form(key="chat_form", clear_on_submit=True):
-            user_input = st.text_area("Tulis pertanyaanmu:", key="chat_input", label_visibility="collapsed", 
-                                    placeholder="Tanyakan tentang bahasa isyarat...", height=100)
-            cols = st.columns([1, 0.1])
-            with cols[0]:
-                send = st.form_submit_button("Kirim", use_container_width=True)
-            with cols[1]:
-                if st.form_submit_button("🔄", help="Clear chat", use_container_width=True):
-                    st.session_state.chat_history = st.session_state.chat_history[:1]
-                    st.rerun()
+    st.markdown("### Pengaturan Deteksi Kamera")
+    st.session_state.show_fps_camera = st.checkbox("Tampilkan FPS di halaman Deteksi", value=st.session_state.show_fps_camera, key="settings_show_fps")
+    st.session_state.detection_threshold = st.slider("Threshold Deteksi (Confidence Model)", 0.0, 1.0, st.session_state.detection_threshold, 0.05, key="settings_detection_threshold")
+    st.info("Threshold deteksi mempengaruhi seberapa yakin model harus sebelum menandai isyarat.", icon="ℹ️")
 
-        if send and user_input:
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            st.session_state.trigger_chat = True
-            st.rerun()
+    st.markdown("### Pengaturan Umum")
+    # Example of a future setting:
+    # st.selectbox("Bahasa Aplikasi", ["Bahasa Indonesia", "English"], key="app_language")
+    
+    # Reset button for all settings if needed
+    if st.button("Reset Pengaturan ke Default", key="reset_settings", type="secondary"):
+        st.session_state.show_fps_camera = True
+        st.session_state.detection_threshold = 0.6
+        st.success("Pengaturan telah direset ke nilai default.")
+        st.rerun()
 
-# Main page routing
+
+# --- Main Application Logic ---
 if st.session_state.current_page == "🏠 Beranda":
     landing_page()
 elif st.session_state.current_page == "🌟 Fitur Unggulan":
@@ -750,3 +842,5 @@ elif st.session_state.current_page == "🎤 Speech to Visual":
     speech_page()
 elif st.session_state.current_page == "💬 Chatbot":
     chatbot_page()
+elif st.session_state.current_page == "⚙️ Pengaturan":
+    settings_page()
